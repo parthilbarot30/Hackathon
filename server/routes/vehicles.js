@@ -18,17 +18,18 @@ router.get('/', async (req, res) => {
 // This is what your "New Vehicle Registration" form will trigger
 router.post('/', async (req, res) => {
   try {
-    const { name, license_plate, max_capacity, odometer } = req.body;
+    // We added 'type' here!
+    const { name, license_plate, max_capacity, odometer, type } = req.body;
     
     const newVehicle = await db.query(
-      `INSERT INTO vehicles (name, license_plate, max_capacity, odometer) 
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [name, license_plate, max_capacity, odometer]
+      `INSERT INTO vehicles (name, license_plate, max_capacity, odometer, type) 
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [name, license_plate, max_capacity, odometer, type]
     );
     
-    res.json(newVehicle.rows[0]); // Sends back the newly created vehicle
+    res.json(newVehicle.rows[0]); 
   } catch (err) {
-    console.error('Error adding vehicle:', err.message);
+    console.error('❌ Error adding vehicle:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });

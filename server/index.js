@@ -19,6 +19,13 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/vehicles', require('./routes/vehicles')); 
+app.use('/api/drivers', require('./routes/drivers'));
+app.use('/api/trips', require('./routes/trips'));
+app.use('/api/maintenance', require('./routes/maintenance'));
+app.use('/api/expenses', require('./routes/expenses'));
+app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/analytics', require('./routes/analytics'));
+app.use('/api/auth', require('./routes/auth'));
 
 // THIS is the line that keeps the server awake!
 app.listen(PORT, () => {
