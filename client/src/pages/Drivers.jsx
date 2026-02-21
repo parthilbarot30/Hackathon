@@ -1,227 +1,240 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users, Plus, Search, Filter, Shield, AlertTriangle, X, Save, FileText, UserMinus, Activity } from "lucide-react";
+import { Users, Plus, X, Shield, Phone, MapPin, CreditCard, Calendar, AlertTriangle } from "lucide-react";
+import { useTheme } from "../context/ThemeContext";
 
-// Fallback URL for your PostgreSQL backend
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 export default function Drivers() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [showAddModal, setShowAddModal] = useState(false);
-
-  // 1. Initialize state for database data
   const [drivers, setDrivers] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const { darkMode } = useTheme();
 
-  const [newDriver, setNewDriver] = useState({
-    name: "", license: "", category: "Truck", expiry: "", status: "Off Duty"
+  const [formData, setFormData] = useState({
+    name: "", phone: "", license_no: "", expiry_date: ""
   });
 
-  const today = new Date().toISOString().split('T')[0];
-
-  // 2. FETCH DRIVERS FROM DATABASE ON LOAD
   useEffect(() => {
     fetch(`${API_URL}/drivers`)
       .then(res => res.json())
       .then(data => setDrivers(data))
-      .catch(err => console.error("Error fetching drivers:", err));
+      .catch(err => console.error("Error:", err));
   }, []);
 
-  const filteredDrivers = useMemo(() => {
-    return drivers.filter(d => {
-      const searchLower = searchTerm.toLowerCase().trim();
-      const matchesSearch = searchLower === "" || 
-                            d.name.toLowerCase().includes(searchLower) || 
-                            d.id.toString().includes(searchLower) ||
-                            d.license.toLowerCase().includes(searchLower);
-      
-      const matchesStatus = statusFilter === "All" || d.status === statusFilter;
-      
-      return matchesSearch && matchesStatus;
-    });
-  }, [searchTerm, statusFilter, drivers]);
-
-  useEffect(() => {
-    if (showAddModal) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => { document.body.style.overflow = 'unset'; };
-  }, [showAddModal]);
-
-  // 3. SAVE NEW DRIVER TO POSTGRESQL
-  const handleAddDriver = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!newDriver.name || !newDriver.license || !newDriver.expiry) return;
-    
+    if (!formData.name || !formData.license_no) return;
+    setSaving(true);
     try {
       const response = await fetch(`${API_URL}/drivers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newDriver),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData)
       });
-
       if (response.ok) {
-        const addedDriver = await response.json();
-        setDrivers([addedDriver, ...drivers]);
-        setShowAddModal(false);
-        setNewDriver({ name: "", license: "", category: "Truck", expiry: "", status: "Off Duty" });
+        const newDriver = await response.json();
+        setDrivers([newDriver, ...drivers]);
+        setShowForm(false);
+        setFormData({ name: "", phone: "", license_no: "", expiry_date: "" });
       }
     } catch (err) {
-      console.error("Save Driver Error:", err);
+      console.error("Error:", err);
+    } finally {
+      setSaving(false);
     }
   };
 
-  // 4. UPDATE STATUS IN DATABASE
-  const handleToggleStatus = async (id, currentStatus) => {
-    let nextStatus = "On Duty";
-    if (currentStatus === "On Duty") nextStatus = "Off Duty";
-    if (currentStatus === "Off Duty") nextStatus = "Suspended";
-    if (currentStatus === "Suspended") nextStatus = "On Duty";
-
+  const toggleStatus = async (id, currentStatus) => {
+    const newStatus = currentStatus === "On Duty" ? "Off Duty" : "On Duty";
     try {
-      const response = await fetch(`${API_URL}/drivers/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
+      const res = await fetch(`${API_URL}/drivers/${id}/status`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus })
       });
-
-      if (response.ok) {
-        setDrivers(drivers.map(d => d.id === id ? { ...d, status: nextStatus } : d));
+      if (res.ok) {
+        setDrivers(drivers.map(d => d.id === id ? { ...d, status: newStatus } : d));
       }
     } catch (err) {
-      console.error("Update Status Error:", err);
+      console.error("Error:", err);
     }
   };
 
-  // UI Helper functions
   const getStatusColor = (status) => {
-    switch(status) {
-      case "On Duty": return "bg-brand-teal/10 text-brand-teal border-brand-teal/20";
-      case "Off Duty": return "bg-slate-100 text-slate-500 border-slate-200";
-      case "Suspended": return "bg-red-500/10 text-red-500 border-red-500/20";
-      default: return "bg-slate-100 text-slate-500 border-slate-200";
-    }
+    const s = String(status || "").toLowerCase();
+    if (s.includes("on duty") || s.includes("available")) return "bg-green-100 text-green-700 border-green-200";
+    if (s.includes("on trip")) return "bg-blue-100 text-blue-700 border-blue-200";
+    if (s.includes("off duty")) return "bg-slate-100 text-slate-600 border-slate-200";
+    return "bg-yellow-100 text-yellow-700 border-yellow-200";
+  };
+
+  // Safety Score: calculated from completion_rate and complaints
+  // Formula: completion_rate - (complaints * 5), clamped to 0-100
+  const calculateSafety = (d) => {
+    const completionRate = parseInt(d.completion_rate) || 80;
+    const complaints = parseInt(d.complaints) || 0;
+    return Math.max(0, Math.min(100, completionRate - (complaints * 5)));
   };
 
   const getSafetyColor = (score) => {
-    if (score >= 90) return "text-brand-teal";
-    if (score >= 70) return "text-brand-orange";
+    if (score >= 80) return "text-green-500";
+    if (score >= 60) return "text-yellow-500";
     return "text-red-500";
   };
 
-  const isExpired = (expiryDate) => expiryDate < today;
+  const getSafetyBg = (score) => {
+    if (score >= 80) return darkMode ? "bg-green-500/20" : "bg-green-50";
+    if (score >= 60) return darkMode ? "bg-yellow-500/20" : "bg-yellow-50";
+    return darkMode ? "bg-red-500/20" : "bg-red-50";
+  };
 
-  const expiredCount = drivers.filter(d => isExpired(d.expiry)).length;
+  // License expiry color coding
+  const getLicenseStatus = (expiryDate) => {
+    if (!expiryDate) return { color: "text-gray-400", label: "No Expiry", status: "unknown" };
+    const today = new Date();
+    const expiry = new Date(expiryDate);
+    const diffMs = expiry - today;
+    const diffMonths = diffMs / (1000 * 60 * 60 * 24 * 30);
+
+    if (diffMs < 0) return { color: "text-red-500", label: "EXPIRED", status: "expired" };
+    if (diffMonths < 6) return { color: "text-yellow-500", label: `Expires ${expiry.toLocaleDateString('en-IN')}`, status: "warning" };
+    return { color: "text-green-500", label: `Valid till ${expiry.toLocaleDateString('en-IN')}`, status: "valid" };
+  };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 relative z-0">
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-black text-brand-dark tracking-tight">Personnel Network</h1>
-          <p className="text-slate-500 font-medium mt-1">Live driver tracking and compliance metrics from PostgreSQL.</p>
+          <h1 className={`text-3xl font-black tracking-tight ${darkMode ? 'text-white' : 'text-brand-dark'}`}>Driver Management</h1>
+          <p className={`font-medium mt-1 ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>View and manage your driver workforce.</p>
         </div>
-        <motion.button 
-          whileHover={{ scale: 1.05 }}
-          onClick={() => setShowAddModal(true)}
-          className="bg-brand-dark text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center gap-2 w-fit"
-        >
-          <Plus size={18} /> Onboard Driver
-        </motion.button>
+        <button onClick={() => setShowForm(true)} className={`px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-md text-white ${darkMode ? 'bg-brand-teal' : 'bg-brand-dark'}`}>
+          <Plus size={18} /> Add Driver
+        </button>
       </div>
 
-      {/* KPI Cards mapping directly to database state */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
-          <div className="bg-brand-dark/10 p-4 rounded-xl text-brand-dark"><Users size={24} /></div>
-          <div><p className="text-sm font-bold text-slate-500 uppercase">Total Workforce</p><p className="text-3xl font-black text-brand-dark">{drivers.length}</p></div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
-          <div className="bg-brand-teal/10 p-4 rounded-xl text-brand-teal"><Activity size={24} /></div>
-          <div><p className="text-sm font-bold text-slate-500 uppercase">Active Duty</p><p className="text-3xl font-black text-brand-dark">{drivers.filter(d => d.status === "On Duty").length}</p></div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4 text-red-500">
-          <div className="bg-red-500/10 p-4 rounded-xl"><AlertTriangle size={24} /></div>
-          <div><p className="text-sm font-bold text-slate-500 uppercase">License Alerts</p><p className="text-3xl font-black">{expiredCount}</p></div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
-          <div className="bg-brand-orange/10 p-4 rounded-xl text-brand-orange"><UserMinus size={24} /></div>
-          <div><p className="text-sm font-bold text-slate-500 uppercase">Suspended</p><p className="text-3xl font-black text-brand-dark">{drivers.filter(d => d.status === "Suspended").length}</p></div>
-        </div>
-      </div>
-
-      {/* Filter / Search Bar */}
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full md:w-96">
-          <Search size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
-          <input type="text" placeholder="Search records..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
-        </div>
-        <div className="flex items-center gap-2 overflow-x-auto">
-          {["All", "On Duty", "Off Duty", "Suspended"].map((status) => (
-            <button key={status} onClick={() => setStatusFilter(status)} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${statusFilter === status ? "bg-brand-dark text-white shadow-md" : "bg-slate-50 text-slate-600 border"}`}>{status}</button>
-          ))}
-        </div>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-4 gap-4">
+        {[
+          { label: "Total Drivers", value: drivers.length, color: "text-brand-teal" },
+          { label: "On Duty", value: drivers.filter(d => String(d.status || "").toLowerCase().includes("on duty")).length, color: "text-green-500" },
+          { label: "On Trip", value: drivers.filter(d => String(d.status || "").toLowerCase().includes("on trip")).length, color: "text-blue-500" },
+          { label: "Expired License", value: drivers.filter(d => getLicenseStatus(d.expiry_date).status === "expired").length, color: "text-red-500" },
+        ].map((s, i) => (
+          <div key={i} className={`p-4 rounded-2xl border ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-slate-200'}`}>
+            <p className={`text-2xl font-black ${s.color}`}>{s.value}</p>
+            <p className={`text-xs font-bold ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>{s.label}</p>
+          </div>
+        ))}
       </div>
 
       {/* Driver Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <AnimatePresence mode="popLayout">
-          {filteredDrivers.map((driver) => (
-            <motion.div key={driver.id} layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow relative overflow-hidden flex flex-col">
-              {isExpired(driver.expiry) && (
-                <div className="absolute top-0 left-0 w-full bg-red-500 text-white text-[10px] font-black text-center py-1 uppercase tracking-widest">Compliance Alert: Expired</div>
-              )}
-              <div className={`flex justify-between items-start mb-6 ${isExpired(driver.expiry) ? 'mt-4' : ''}`}>
-                <div className="flex items-center gap-4">
-                  <div className="bg-brand-dark w-12 h-12 rounded-full flex items-center justify-center text-white font-black text-lg">{driver.name.charAt(0)}</div>
-                  <div><h3 className="text-lg font-black text-brand-dark">{driver.name}</h3><p className="text-slate-500 text-xs font-bold uppercase tracking-wider">ID: {driver.id}</p></div>
+        {drivers.length === 0 ? (
+          <div className={`col-span-3 p-12 text-center rounded-2xl border ${darkMode ? 'bg-gray-900 border-gray-800 text-gray-500' : 'bg-white border-slate-200 text-slate-400'}`}>
+            No drivers registered yet.
+          </div>
+        ) : drivers.map(d => {
+          const safetyScore = calculateSafety(d);
+          const licenseInfo = getLicenseStatus(d.expiry_date);
+
+          return (
+            <motion.div key={d.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+              className={`p-6 rounded-2xl border shadow-sm ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-slate-200'}`}
+            >
+              {/* Header */}
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className={`text-lg font-black ${darkMode ? 'text-white' : 'text-brand-dark'}`}>{d.name}</h3>
+                  <p className={`text-xs font-bold uppercase tracking-widest ${darkMode ? 'text-gray-500' : 'text-slate-400'}`}>ID #{d.id}</p>
                 </div>
-                <button onClick={() => handleToggleStatus(driver.id, driver.status)} className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border transition-colors ${getStatusColor(driver.status)}`}>{driver.status}</button>
+                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(d.status)}`}>{d.status || "On Duty"}</span>
               </div>
 
-              <div className="space-y-4 flex-grow mb-6">
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex justify-between items-center text-sm font-bold">
-                  <div className="flex items-center gap-2 text-slate-500"><FileText size={16} /> License</div>
-                  <div className="text-right text-brand-dark">{driver.license}<br/><span className="text-[10px] text-slate-400">Exp: {driver.expiry}</span></div>
-                </div>
-                <div className="flex justify-between items-center text-sm font-bold">
-                   <span className="text-slate-500 flex items-center gap-1"><Shield size={14}/> Safety Rating</span>
-                   <span className={getSafetyColor(driver.safety_score || 95)}>{driver.safety_score || 95}/100</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                  <div className={`h-full ${getSafetyColor(driver.safety_score || 95).replace('text-', 'bg-')}`} style={{ width: `${driver.safety_score || 95}%` }}></div>
-                </div>
+              {/* Details */}
+              <div className={`space-y-2.5 text-sm ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>
+                {/* Phone */}
+                <p className="flex items-center gap-2">
+                  <Phone size={14} className="text-brand-teal" /> {d.phone || "N/A"}
+                </p>
+
+                {/* License Number — Color coded */}
+                <p className="flex items-center gap-2">
+                  <CreditCard size={14} className={licenseInfo.color} />
+                  <span className={`font-bold ${licenseInfo.color}`}>{d.license_no || "N/A"}</span>
+                </p>
+
+                {/* License Expiry */}
+                <p className="flex items-center gap-2">
+                  <Calendar size={14} className={licenseInfo.color} />
+                  <span className={`text-xs font-bold ${licenseInfo.color}`}>
+                    {licenseInfo.status === "expired" && <AlertTriangle size={12} className="inline mr-1" />}
+                    {licenseInfo.label}
+                  </span>
+                </p>
+
+                {/* Trips completed */}
+                {d.trips !== undefined && d.trips !== null && (
+                  <p className="flex items-center gap-2">
+                    <MapPin size={14} /> Trips: {d.trips}
+                  </p>
+                )}
               </div>
+
+              {/* Safety Score Bar */}
+              <div className={`mt-4 p-3 rounded-xl ${getSafetyBg(safetyScore)}`}>
+                <div className="flex justify-between items-center mb-1.5">
+                  <span className="text-xs font-bold flex items-center gap-1">
+                    <Shield size={12} /> Safety Score
+                  </span>
+                  <span className={`text-lg font-black ${getSafetyColor(safetyScore)}`}>{safetyScore}%</span>
+                </div>
+                <div className={`w-full h-2 rounded-full overflow-hidden ${darkMode ? 'bg-gray-700' : 'bg-slate-200'}`}>
+                  <div className={`h-full rounded-full transition-all ${safetyScore >= 80 ? 'bg-green-500' : safetyScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                    style={{ width: `${safetyScore}%` }} />
+                </div>
+                <p className={`text-[10px] mt-1 ${darkMode ? 'text-gray-500' : 'text-slate-400'}`}>
+                  Completion: {d.completion_rate || 80}% | Complaints: {d.complaints || 0}
+                </p>
+              </div>
+
+              <button onClick={() => toggleStatus(d.id, d.status)}
+                className={`mt-4 w-full py-2 rounded-xl text-xs font-bold transition-colors ${darkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}>
+                Toggle Status
+              </button>
             </motion.div>
-          ))}
-        </AnimatePresence>
+          );
+        })}
       </div>
 
-      {/* Onboarding Modal */}
+      {/* Add Driver Modal */}
       <AnimatePresence>
-        {showAddModal && (
+        {showForm && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowAddModal(false)} />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl p-8">
-              <h2 className="text-2xl font-black mb-6">Onboard New Driver</h2>
-              <form onSubmit={handleAddDriver} className="space-y-4">
-                <input type="text" required placeholder="Full Name" value={newDriver.name} onChange={e => setNewDriver({...newDriver, name: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl" />
-                <div className="grid grid-cols-2 gap-4">
-                  <input type="text" required placeholder="License #" value={newDriver.license} onChange={e => setNewDriver({...newDriver, license: e.target.value})} className="p-3 bg-slate-50 border rounded-xl uppercase" />
-                  <input type="date" required value={newDriver.expiry} onChange={e => setNewDriver({...newDriver, expiry: e.target.value})} className="p-3 bg-slate-50 border rounded-xl" />
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => { if (!saving) setShowForm(false); }} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className={`relative w-full max-w-lg rounded-3xl shadow-2xl p-8 ${darkMode ? 'bg-gray-900' : 'bg-white'}`}>
+              <h2 className={`text-xl font-black mb-6 ${darkMode ? 'text-white' : ''}`}>Register New Driver</h2>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <input required disabled={saving} placeholder="Full Name" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
+                  value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
+                <input required disabled={saving} placeholder="Phone Number" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
+                  value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
+                <input required disabled={saving} placeholder="License Number" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
+                  value={formData.license_no} onChange={e => setFormData({ ...formData, license_no: e.target.value })} />
+                <div>
+                  <label className={`text-xs font-bold block mb-1 ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>License Expiry Date</label>
+                  <input required disabled={saving} type="date" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-slate-50'}`}
+                    value={formData.expiry_date} onChange={e => setFormData({ ...formData, expiry_date: e.target.value })} />
                 </div>
-                <select value={newDriver.category} onChange={e => setNewDriver({...newDriver, category: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl">
-                  <option value="Truck">Class A: Truck</option>
-                  <option value="Van">Class B: Van</option>
-                  <option value="Bike">Class C: Motor</option>
-                </select>
-                <button type="submit" className="w-full py-4 bg-brand-dark text-white rounded-2xl font-black shadow-xl hover:bg-black transition-all">Complete Verification</button>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" disabled={saving} onClick={() => { if (!saving) setShowForm(false); }} className={`flex-1 py-3 border rounded-xl font-bold ${saving ? 'opacity-50 cursor-not-allowed' : ''} ${darkMode ? 'border-gray-700 text-gray-300' : 'border-slate-200 text-slate-600'}`}>Cancel</button>
+                  <button type="submit" disabled={saving} className={`flex-1 py-3 bg-brand-teal text-white rounded-xl font-bold shadow-md transition-all ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}>{saving ? '⏳ Registering...' : 'Register'}</button>
+                </div>
               </form>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-    </div>
+    </div >
   );
 }

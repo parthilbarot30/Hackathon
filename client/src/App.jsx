@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Home from './pages/Home';
-import Login from './pages/Login';       
-import Register from './pages/Register'; 
+import Login from './pages/Login';
+import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import VehicleRegistry from './pages/VehicleRegistry';
 import Dispatcher from './pages/Dispatcher';
@@ -9,20 +9,25 @@ import Maintenance from './pages/Maintenance';
 import Expenses from './pages/Expenses';
 import Drivers from './pages/Drivers';
 import Analytics from './pages/Analytics';
+import About from './pages/About';
 import Sidebar from './components/Sidebar';
+import { useTheme } from './context/ThemeContext';
 
 function App() {
+  const { darkMode } = useTheme();
+
   return (
     <Router>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/login" element={<Login />} />       
-        <Route path="/register" element={<Register />} /> 
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/about" element={<About />} />
 
         <Route
           path="/*"
           element={
-            <div className="flex h-screen bg-brand-bg">
+            <div className={`flex h-screen transition-colors duration-300 ${darkMode ? 'bg-gray-950' : 'bg-brand-bg'}`}>
               <Sidebar />
               <main className="flex-1 overflow-auto p-6">
                 <Routes>

@@ -1,283 +1,193 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Wrench, Plus, X, CheckCircle, Clock, DollarSign, 
-  Calendar, User, Search, Filter, Truck, Save 
-} from "lucide-react";
+import { Wrench, Plus, X, CheckCircle, Clock } from "lucide-react";
+import { useTheme } from "../context/ThemeContext";
 
-// Use the API URL from your environment or default to local port 5000
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 export default function Maintenance() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [showLogModal, setShowLogModal] = useState(false);
-
-  // 1. Initialize empty states for database data
+  const [logs, setLogs] = useState([]);
+  const [showForm, setShowForm] = useState(false);
   const [vehicles, setVehicles] = useState([]);
-  const [serviceLogs, setServiceLogs] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [completingId, setCompletingId] = useState(null);
+  const [error, setError] = useState(null);
+  const { darkMode } = useTheme();
 
-  const [newLog, setNewLog] = useState({
-    vehicleId: "", 
-    type: "General Repair", 
-    description: "", 
-    date: new Date().toISOString().split('T')[0], 
-    cost: "", 
-    technician: ""
+  const [formData, setFormData] = useState({
+    vehicle_id: "", service_type: "", cost: "", notes: ""
   });
 
-  // 2. Fetch real data from PostgreSQL via Express on load
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Fetch existing maintenance logs
-        const logsRes = await fetch(`${API_URL}/maintenance`);
-        const logsData = await logsRes.json();
-        setServiceLogs(logsData);
+  const fetchAll = async () => {
+    try {
+      const [mRes, vRes] = await Promise.all([
+        fetch(`${API_URL}/maintenance`),
+        fetch(`${API_URL}/vehicles`)
+      ]);
+      setLogs(await mRes.json());
+      setVehicles(await vRes.json());
+    } catch (err) {
+      console.error("Fetch error:", err);
+    }
+  };
 
-        // Fetch all vehicles for the assignment dropdown
-        const vehiclesRes = await fetch(`${API_URL}/vehicles`);
-        const vehiclesData = await vehiclesRes.json();
-        setVehicles(vehiclesData);
-      } catch (err) {
-        console.error("Database Connection Error:", err);
-      }
-    };
-    fetchData();
-  }, []);
+  useEffect(() => { fetchAll(); }, []);
 
-  // Helper to clean numeric strings from the DB (removes "Rs.", ",", etc.)
-  const cleanAmount = (val) => Number(val?.toString().replace(/[^0-9.-]+/g, "")) || 0;
+  const cleanAmount = (val) => {
+    if (!val) return "N/A";
+    const s = String(val).replace(/[^0-9.kKlL]/g, "");
+    let n = parseFloat(s) || 0;
+    if (s.toLowerCase().includes("k")) n *= 1000;
+    if (s.toLowerCase().includes("l")) n *= 100000;
+    return "₹" + n.toLocaleString("en-IN");
+  };
 
-  const filteredLogs = useMemo(() => {
-    return serviceLogs.filter(log => {
-      const searchLower = searchTerm.toLowerCase().trim();
-      const matchesSearch = searchLower === "" || 
-                            log.vehicle_id?.toLowerCase().includes(searchLower) || 
-                            log.technician?.toLowerCase().includes(searchLower) ||
-                            log.description?.toLowerCase().includes(searchLower);
-      
-      const matchesStatus = statusFilter === "All" || log.status === statusFilter;
-      
-      return matchesSearch && matchesStatus;
-    });
-  }, [searchTerm, statusFilter, serviceLogs]);
-
-  // 3. Save new service record to Database
-  const handleCreateLog = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!newLog.vehicleId || !newLog.description || !newLog.cost) return;
-
+    if (!formData.vehicle_id || !formData.service_type || !formData.cost) return;
+    setSaving(true);
+    setError(null);
     try {
       const response = await fetch(`${API_URL}/maintenance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vehicle_id: newLog.vehicleId,
-          type: newLog.type,
-          description: newLog.description,
-          cost: Number(newLog.cost), // Ensures numeric format for DB
-          technician: newLog.technician,
-          date: newLog.date,
-          status: "In Shop" // Automatically marks vehicle as In Shop
-        })
+        body: JSON.stringify(formData)
       });
-
       if (response.ok) {
-        const savedLog = await response.json();
-        setServiceLogs([savedLog, ...serviceLogs]);
-        
-        // Refresh vehicles to show the updated 'In Shop' status across the system
-        const vehiclesRes = await fetch(`${API_URL}/vehicles`);
-        setVehicles(await vehiclesRes.json());
-
-        setShowLogModal(false);
-        setNewLog({ 
-          vehicleId: "", type: "General Repair", description: "", 
-          date: new Date().toISOString().split('T')[0], cost: "", technician: "" 
-        });
+        setShowForm(false);
+        setFormData({ vehicle_id: "", service_type: "", cost: "", notes: "" });
+        setError(null);
+        await fetchAll();
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        setError(errData.error || "Failed to save. Check if maintenance table has columns: vehicle_id, service_type, cost, notes, status");
       }
     } catch (err) {
-      console.error("Failed to save record:", err);
+      setError("Server connection failed: " + err.message);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleCompleteService = async (logId, vehiclePlate) => {
+  const handleComplete = async (id) => {
+    setCompletingId(id);
     try {
-      const response = await fetch(`${API_URL}/maintenance/${logId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "Completed" })
-      });
-
+      const response = await fetch(`${API_URL}/maintenance/${id}/complete`, { method: "PUT" });
       if (response.ok) {
-        // Update local state to reflect completion
-        setServiceLogs(serviceLogs.map(log => log.id === logId ? { ...log, status: "Completed" } : log));
-        // Reset vehicle to Available
-        setVehicles(vehicles.map(v => v.license_plate === vehiclePlate ? { ...v, status: "Available" } : v));
+        setLogs(logs.map(l => l.id === id ? { ...l, status: "Completed" } : l));
+        await fetchAll();
       }
     } catch (err) {
-      console.error("Update error:", err);
+      console.error("Error:", err);
+    } finally {
+      setCompletingId(null);
     }
+  };
+
+  const getStatusStyle = (status) => {
+    const s = String(status || "").toLowerCase();
+    if (s.includes("completed") || s.includes("done")) return "bg-green-100 text-green-700 border-green-200";
+    if (s.includes("progress") || s.includes("active")) return "bg-blue-100 text-blue-700 border-blue-200";
+    return "bg-yellow-100 text-yellow-700 border-yellow-200";
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 relative z-0">
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-black text-brand-dark tracking-tight">Maintenance Logs</h1>
-          <p className="text-slate-500 font-medium mt-1">Real-time asset health synchronized with PostgreSQL.</p>
+          <h1 className={`text-3xl font-black tracking-tight ${darkMode ? 'text-white' : 'text-brand-dark'}`}>Maintenance Center</h1>
+          <p className={`font-medium mt-1 ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>Track and manage vehicle service records.</p>
         </div>
-        <motion.button 
-          whileHover={{ scale: 1.05 }}
-          onClick={() => setShowLogModal(true)}
-          className="bg-brand-dark text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md hover:bg-black transition-all flex items-center gap-2 w-fit"
-        >
-          <Plus size={18} /> Log Service Event
-        </motion.button>
+        <button onClick={() => setShowForm(true)} className={`px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-md text-white ${darkMode ? 'bg-brand-teal' : 'bg-brand-dark'}`}>
+          <Plus size={18} /> Add Service Log
+        </button>
       </div>
 
-      {/* KPI Cards mapping directly to database state */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
-          <div className="bg-red-500/10 p-4 rounded-xl text-red-500 shadow-inner">
-            <Wrench size={28} />
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: "Total Records", value: logs.length, icon: Wrench, color: "text-brand-teal" },
+          { label: "In Progress", value: logs.filter(l => !String(l.status || "").toLowerCase().includes("completed")).length, icon: Clock, color: "text-blue-500" },
+          { label: "Completed", value: logs.filter(l => String(l.status || "").toLowerCase().includes("completed")).length, icon: CheckCircle, color: "text-green-500" },
+        ].map((s, i) => (
+          <div key={i} className={`p-5 rounded-2xl border ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-slate-200'}`}>
+            <s.icon size={20} className={s.color} />
+            <p className={`text-2xl font-black mt-2 ${darkMode ? 'text-white' : 'text-brand-dark'}`}>{s.value}</p>
+            <p className={`text-sm font-bold ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>{s.label}</p>
           </div>
-          <div>
-            <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">Active Repairs</p>
-            <p className="text-3xl font-black text-brand-dark leading-none">
-              {serviceLogs.filter(l => l.status === "In Shop" || l.status === "New").length}
-            </p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
-          <div className="bg-brand-teal/10 p-4 rounded-xl text-brand-teal shadow-inner">
-            <CheckCircle size={28} />
-          </div>
-          <div>
-            <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">Completed Logs</p>
-            <p className="text-3xl font-black text-brand-dark leading-none">
-              {serviceLogs.filter(l => l.status === "Completed").length}
-            </p>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
-          <div className="bg-brand-orange/10 p-4 rounded-xl text-brand-orange shadow-inner">
-            <DollarSign size={28} />
-          </div>
-          <div>
-            <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">Total Expense</p>
-            <p className="text-3xl font-black text-brand-dark leading-none">
-              ${serviceLogs.reduce((acc, log) => acc + cleanAmount(log.cost), 0).toLocaleString()}
-            </p>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Filters */}
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full md:w-96">
-          <Search size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder="Search by Vehicle or Tech..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-teal/50 transition-all"
-          />
-        </div>
-        <div className="flex items-center gap-2 overflow-x-auto">
-          {["All", "In Shop", "Completed"].map((status) => (
-            <button
-              key={status}
-              onClick={() => setStatusFilter(status)}
-              className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all ${
-                statusFilter === status 
-                  ? "bg-brand-dark text-white shadow-md" 
-                  : "bg-slate-50 text-slate-600 border border-slate-200"
-              }`}
-            >
-              {status}
-            </button>
-          ))}
+      {/* Table */}
+      <div className={`rounded-2xl border overflow-hidden ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-slate-200'}`}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className={`text-xs uppercase tracking-wider border-b ${darkMode ? 'bg-gray-800 text-gray-400 border-gray-700' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                <th className="p-4 font-bold">ID</th><th className="p-4 font-bold">Vehicle</th>
+                <th className="p-4 font-bold">Service Type</th><th className="p-4 font-bold">Cost</th>
+                <th className="p-4 font-bold">Status</th><th className="p-4 font-bold">Action</th>
+              </tr>
+            </thead>
+            <tbody className={darkMode ? 'divide-y divide-gray-800' : 'divide-y divide-slate-50'}>
+              {logs.length === 0 ? (
+                <tr><td colSpan="6" className={`p-6 text-center ${darkMode ? 'text-gray-500' : 'text-slate-400'}`}>No maintenance records.</td></tr>
+              ) : logs.map(l => (
+                <tr key={l.id} className={`transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-slate-50'}`}>
+                  <td className={`p-4 font-bold ${darkMode ? 'text-white' : 'text-brand-dark'}`}>#{l.id}</td>
+                  <td className={`p-4 ${darkMode ? 'text-gray-300' : 'text-slate-600'}`}>{l.vehicle_name || l.license_plate || `#${l.vehicle_id}`}</td>
+                  <td className={`p-4 ${darkMode ? 'text-gray-300' : 'text-slate-600'}`}>{l.service_type || "—"}</td>
+                  <td className={`p-4 font-bold ${darkMode ? 'text-white' : ''}`}>{cleanAmount(l.cost)}</td>
+                  <td className="p-4"><span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusStyle(l.status)}`}>{l.status || "In Progress"}</span></td>
+                  <td className="p-4">
+                    {!String(l.status || "").toLowerCase().includes("completed") && (
+                      <button disabled={completingId === l.id} onClick={() => handleComplete(l.id)}
+                        className={`text-xs font-bold transition-colors ${completingId === l.id ? 'text-gray-400 cursor-not-allowed' : 'text-brand-teal hover:underline'}`}>
+                        {completingId === l.id ? '⏳ Completing...' : 'Mark Complete'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* Logs Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <AnimatePresence mode="popLayout">
-          {filteredLogs.map((log) => (
-            <motion.div 
-              key={log.id} 
-              layout
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-full hover:shadow-md transition-shadow"
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={`p-3 rounded-xl ${log.status === 'In Shop' || log.status === 'New' ? 'bg-red-50 text-red-500' : 'bg-brand-teal/10 text-brand-teal'}`}>
-                    <Wrench size={24} />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-black text-brand-dark">{log.vehicle_id}</h3>
-                    <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">{log.type || 'Repair'}</p>
-                  </div>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${log.status === 'In Shop' || log.status === 'New' ? 'bg-red-50 text-red-600 border-red-200' : 'bg-slate-50 text-slate-600'}`}>
-                  {log.status}
-                </span>
-              </div>
-              <p className="text-slate-600 text-sm mb-6 flex-grow leading-relaxed">{log.description || log.issue}</p>
-              <div className="grid grid-cols-2 gap-4 mb-6 text-sm bg-slate-50/50 p-4 rounded-xl border">
-                <div className="flex items-center gap-2 font-medium">
-                   <Calendar size={16} className="text-slate-400" /> {log.date || log.service_date}
-                </div>
-                <div className="flex items-center gap-2 font-bold text-brand-dark">
-                   <DollarSign size={16} className="text-brand-orange" /> ${cleanAmount(log.cost).toLocaleString()}
-                </div>
-                <div className="flex items-center gap-2 col-span-2 text-slate-500 font-bold">
-                   <User size={16} /> Tech: {log.technician || 'General Tech'}
-                </div>
-              </div>
-              {(log.status === "In Shop" || log.status === "New") && (
-                <button 
-                  onClick={() => handleCompleteService(log.id, log.vehicle_id)}
-                  className="w-full py-2.5 bg-brand-teal text-white font-bold rounded-xl text-sm shadow-sm hover:bg-brand-teal/90 transition-all"
-                >
-                  Mark as Completed
-                </button>
-              )}
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-
-      {/* Log Modal */}
+      {/* Add Form Modal */}
       <AnimatePresence>
-        {showLogModal && (
+        {showForm && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowLogModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl p-8 overflow-hidden">
-              <h2 className="text-2xl font-black mb-6">Log Service Event</h2>
-              <form onSubmit={handleCreateLog} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">Select Asset</label>
-                  <select required value={newLog.vehicleId} onChange={e => setNewLog({...newLog, vehicleId: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl">
-                    <option value="">Select vehicle...</option>
-                    {vehicles.map(v => (
-                      <option key={v.id} value={v.license_plate}>{v.license_plate} - {v.name}</option>
-                    ))}
-                  </select>
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => { if (!saving) { setShowForm(false); setError(null); } }} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className={`relative w-full max-w-lg rounded-3xl shadow-2xl p-8 ${darkMode ? 'bg-gray-900' : 'bg-white'}`}>
+              <div className="flex justify-between items-center mb-6">
+                <h2 className={`text-xl font-black ${darkMode ? 'text-white' : ''}`}>New Maintenance Log</h2>
+                <button onClick={() => { if (!saving) { setShowForm(false); setError(null); } }} className={`p-2 rounded-xl ${darkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-slate-100 text-slate-400'}`}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              {error && (
+                <div className={`mb-4 p-3 rounded-xl text-sm font-bold border ${darkMode ? 'bg-red-900/30 text-red-400 border-red-800' : 'bg-red-50 text-red-600 border-red-100'}`}>
+                  ⚠️ {error}
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <input type="text" required placeholder="Service Type" value={newLog.type} onChange={e => setNewLog({...newLog, type: e.target.value})} className="p-3 bg-slate-50 border rounded-xl" />
-                  <input type="number" required placeholder="Cost ($)" value={newLog.cost} onChange={e => setNewLog({...newLog, cost: e.target.value})} className="p-3 bg-slate-50 border rounded-xl" />
+              )}
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <select required disabled={saving} className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-slate-50'}`} value={formData.vehicle_id} onChange={e => setFormData({ ...formData, vehicle_id: e.target.value })}>
+                  <option value="">Select Vehicle</option>
+                  {vehicles.map(v => <option key={v.id} value={v.id}>{v.license_plate} - {v.name}</option>)}
+                </select>
+                <input required disabled={saving} placeholder="Service Type (e.g. Oil Change)" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`} value={formData.service_type} onChange={e => setFormData({ ...formData, service_type: e.target.value })} />
+                <input required disabled={saving} placeholder="Cost (₹)" type="number" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`} value={formData.cost} onChange={e => setFormData({ ...formData, cost: e.target.value })} />
+                <textarea disabled={saving} placeholder="Notes (optional)" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`} value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} />
+                <div className="flex gap-3 pt-2">
+                  <button type="button" disabled={saving} onClick={() => { if (!saving) { setShowForm(false); setError(null); } }} className={`flex-1 py-3 border rounded-xl font-bold ${saving ? 'opacity-50 cursor-not-allowed' : ''} ${darkMode ? 'border-gray-700 text-gray-300' : 'border-slate-200 text-slate-600'}`}>Cancel</button>
+                  <button type="submit" disabled={saving} className={`flex-1 py-3 bg-brand-teal text-white rounded-xl font-bold shadow-md transition-all ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    {saving ? '⏳ Saving...' : 'Save Log'}
+                  </button>
                 </div>
-                <textarea required placeholder="Repair Description" rows="3" value={newLog.description} onChange={e => setNewLog({...newLog, description: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl resize-none" />
-                <input type="text" required placeholder="Technician Name" value={newLog.technician} onChange={e => setNewLog({...newLog, technician: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl" />
-                <button type="submit" className="w-full py-4 bg-brand-dark text-white rounded-2xl font-black shadow-lg hover:bg-black transition-all">Save Record</button>
               </form>
             </motion.div>
           </div>

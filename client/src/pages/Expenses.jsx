@@ -1,156 +1,181 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { DollarSign, Plus, Search, Filter, Fuel, Receipt, AlertCircle, X, Save, Calendar, MapPin, Truck } from "lucide-react";
+import { DollarSign, Plus, TrendingDown, TrendingUp, X, Wrench, Fuel } from "lucide-react";
+import { useTheme } from "../context/ThemeContext";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 export default function Expenses() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [typeFilter, setTypeFilter] = useState("All");
-  const [showAddModal, setShowAddModal] = useState(false);
   const [expenses, setExpenses] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const { darkMode } = useTheme();
 
-  const [newExpense, setNewExpense] = useState({
-    tripId: "", type: "Fuel", amount: "", description: "", date: new Date().toISOString().split('T')[0]
+  const [formData, setFormData] = useState({
+    vehicle_id: "", fuel_cost: "", misc_expense: "", notes: ""
   });
 
-  // ✅ FIX: Utility to strip symbols like "Rs.", "$", and commas to prevent NaN errors
-  const cleanAmount = (val) => {
-    if (!val) return 0;
-    const numeric = val.toString().replace(/[^0-9.-]+/g, "");
-    return parseFloat(numeric) || 0;
-  };
-
   useEffect(() => {
-    fetch(`${API_URL}/expenses`)
-      .then(res => res.json())
-      .then(data => setExpenses(data))
-      .catch(err => console.error("Expense Fetch Error:", err));
+    const fetchData = async () => {
+      try {
+        const [expRes, vehRes] = await Promise.all([
+          fetch(`${API_URL}/expenses`),
+          fetch(`${API_URL}/vehicles`)
+        ]);
+        setExpenses(await expRes.json());
+        setVehicles(await vehRes.json());
+      } catch (err) {
+        console.error("Error:", err);
+      }
+    };
+    fetchData();
   }, []);
 
-  const filteredExpenses = useMemo(() => {
-    return expenses.filter(exp => {
-      const searchLower = searchTerm.toLowerCase().trim();
-      const matchesSearch = searchLower === "" || 
-                            exp.trip_id?.toString().includes(searchLower) || 
-                            exp.driver_name?.toLowerCase().includes(searchLower);
-      const matchesType = typeFilter === "All" || exp.type === typeFilter;
-      return matchesSearch && matchesType;
-    });
-  }, [searchTerm, typeFilter, expenses]);
+  const cleanAmount = (val) => {
+    if (!val) return 0;
+    const s = String(val).replace(/[^0-9.kKlL]/g, "");
+    let n = parseFloat(s) || 0;
+    if (s.toLowerCase().includes("k")) n *= 1000;
+    if (s.toLowerCase().includes("l")) n *= 100000;
+    return n;
+  };
 
-  const handleAddExpense = async (e) => {
+  const totalFuel = expenses.reduce((sum, e) => sum + cleanAmount(e.fuel_cost), 0);
+  const totalMisc = expenses.reduce((sum, e) => sum + cleanAmount(e.misc_expense), 0);
+  const totalBurn = totalFuel + totalMisc;
+  const formatCurrency = (n) => "₹" + n.toLocaleString("en-IN");
+
+  // Find vehicle name by ID
+  const getVehicleName = (vId) => {
+    const v = vehicles.find(v => v.id === parseInt(vId));
+    return v ? `${v.name} (${v.license_plate})` : `#${vId}`;
+  };
+
+  // Check if an expense is from maintenance (by notes)
+  const isMaintenanceExpense = (exp) => String(exp.notes || "").toLowerCase().includes("maintenance");
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.vehicle_id || !formData.fuel_cost) return;
+    setSaving(true);
     try {
       const response = await fetch(`${API_URL}/expenses`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trip_id: newExpense.tripId,
-          // We send clean numbers to the DB to prevent future errors
-          fuel_cost: newExpense.type === "Fuel" ? cleanAmount(newExpense.amount) : 0,
-          misc_expense: newExpense.type !== "Fuel" ? cleanAmount(newExpense.amount) : 0,
-          description: newExpense.description,
-          date: newExpense.date
-        })
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData)
       });
-
       if (response.ok) {
-        const saved = await response.json();
-        setExpenses([saved, ...expenses]);
-        setShowAddModal(false);
-        setNewExpense({ tripId: "", type: "Fuel", amount: "", description: "", date: new Date().toISOString().split('T')[0] });
+        const newExp = await response.json();
+        setExpenses([newExp, ...expenses]);
+        setShowForm(false);
+        setFormData({ vehicle_id: "", fuel_cost: "", misc_expense: "", notes: "" });
       }
     } catch (err) {
-      console.error("Save Expense Error:", err);
+      console.error("Error:", err);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const totalBurn = expenses.reduce((acc, exp) => {
-    // Summing both potential columns using the cleaning utility
-    const fuel = cleanAmount(exp.fuel_cost);
-    const misc = cleanAmount(exp.misc_expense);
-    return acc + fuel + misc;
-  }, 0);
-
   return (
-    <div className="max-w-7xl mx-auto space-y-8 relative z-0">
+    <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-black text-brand-dark tracking-tight">Financial Logs</h1>
-          <p className="text-slate-500 font-medium mt-1">Live trip expenses synchronized with PostgreSQL.</p>
+          <h1 className={`text-3xl font-black tracking-tight ${darkMode ? 'text-white' : 'text-brand-dark'}`}>Financial Ledger</h1>
+          <p className={`font-medium mt-1 ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>Track fuel, maintenance, and operational costs.</p>
         </div>
-        <motion.button 
-          whileHover={{ scale: 1.05 }} 
-          onClick={() => setShowAddModal(true)} 
-          className="bg-brand-dark text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md flex items-center gap-2"
-        >
-          <Plus size={18} /> Log Expense
-        </motion.button>
+        <button onClick={() => setShowForm(true)} className={`px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-md text-white ${darkMode ? 'bg-brand-teal' : 'bg-brand-dark'}`}>
+          <Plus size={18} /> Add Expense
+        </button>
       </div>
 
-      <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 w-full max-w-sm">
-        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Total Burn</p>
-        <p className="text-5xl font-black text-brand-dark leading-none">
-          ${totalBurn.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-        </p>
+      {/* Summary Cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <DollarSign size={18} className="text-brand-teal" />
+            <p className={`text-sm font-bold uppercase tracking-wider ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>Total Burn</p>
+          </div>
+          <p className={`text-3xl font-black ${darkMode ? 'text-white' : 'text-brand-dark'}`}>{formatCurrency(totalBurn)}</p>
+        </div>
+        <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <Fuel size={18} className="text-red-500" />
+            <p className={`text-sm font-bold uppercase tracking-wider ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>Fuel Costs</p>
+          </div>
+          <p className="text-3xl font-black text-red-500">{formatCurrency(totalFuel)}</p>
+        </div>
+        <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <Wrench size={18} className="text-orange-500" />
+            <p className={`text-sm font-bold uppercase tracking-wider ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>Misc & Maintenance</p>
+          </div>
+          <p className="text-3xl font-black text-orange-500">{formatCurrency(totalMisc)}</p>
+        </div>
       </div>
 
-      <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+      {/* Table */}
+      <div className={`rounded-2xl border overflow-hidden ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-slate-200'}`}>
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-slate-50/50 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] border-b border-slate-100">
-              <th className="p-6">Details</th>
-              <th className="p-6">Type</th>
-              <th className="p-6">Trip</th>
-              <th className="p-6 text-right">Amount</th>
+            <tr className={`text-xs uppercase tracking-wider border-b ${darkMode ? 'bg-gray-800 text-gray-400 border-gray-700' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+              <th className="p-4 font-bold">ID</th><th className="p-4 font-bold">Vehicle</th>
+              <th className="p-4 font-bold">Fuel Cost</th><th className="p-4 font-bold">Misc.</th>
+              <th className="p-4 font-bold">Type</th><th className="p-4 font-bold">Notes</th>
             </tr>
           </thead>
-          <tbody className="text-sm font-bold text-slate-600">
-            {filteredExpenses.map((exp) => {
-              const amount = cleanAmount(exp.fuel_cost) + cleanAmount(exp.misc_expense);
-              return (
-                <tr key={exp.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                  <td className="p-6">
-                    <div className="text-brand-dark">{exp.description || "Trip Expense"}</div>
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">{exp.driver_name || "Staff"}</div>
-                  </td>
-                  <td className="p-6">
-                    <div className="w-10 h-10 rounded-full bg-brand-teal/5 flex items-center justify-center border border-brand-teal/10">
-                      <DollarSign size={16} className="text-brand-teal" />
-                    </div>
-                  </td>
-                  <td className="p-6 text-slate-400 font-black">#{exp.trip_id}</td>
-                  <td className="p-6 text-right text-brand-dark text-lg font-black">
-                    ${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              );
-            })}
+          <tbody className={darkMode ? 'divide-y divide-gray-800' : 'divide-y divide-slate-50'}>
+            {expenses.length === 0 ? (
+              <tr><td colSpan="6" className={`p-6 text-center ${darkMode ? 'text-gray-500' : 'text-slate-400'}`}>No expenses recorded.</td></tr>
+            ) : expenses.map(exp => (
+              <tr key={exp.id} className={`transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-slate-50'}`}>
+                <td className={`p-4 font-bold ${darkMode ? 'text-white' : 'text-brand-dark'}`}>#{exp.id}</td>
+                <td className={`p-4 ${darkMode ? 'text-gray-300' : 'text-slate-600'}`}>{getVehicleName(exp.vehicle_id)}</td>
+                <td className="p-4 text-red-500 font-bold">{formatCurrency(cleanAmount(exp.fuel_cost))}</td>
+                <td className="p-4 text-orange-500 font-bold">{formatCurrency(cleanAmount(exp.misc_expense))}</td>
+                <td className="p-4">
+                  {isMaintenanceExpense(exp) ? (
+                    <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-orange-100 text-orange-600 border border-orange-200">MAINT.</span>
+                  ) : (
+                    <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-600 border border-blue-200">FUEL</span>
+                  )}
+                </td>
+                <td className={`p-4 text-sm ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>{exp.notes || "—"}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
 
+      {/* Add Expense Modal */}
       <AnimatePresence>
-        {showAddModal && (
+        {showForm && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white rounded-[2.5rem] p-10 shadow-2xl w-full max-w-md">
-              <h2 className="text-2xl font-black mb-6">Log New Expense</h2>
-              <form onSubmit={handleAddExpense} className="space-y-4">
-                <input type="text" required placeholder="Trip ID (e.g. 1)" value={newExpense.tripId} onChange={e => setNewExpense({...newExpense, tripId: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl" />
-                <select value={newExpense.type} onChange={e => setNewExpense({...newExpense, type: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl">
-                  <option value="Fuel">Fuel Cost</option>
-                  <option value="Misc">Miscellaneous</option>
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => { if (!saving) setShowForm(false); }} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className={`relative w-full max-w-lg rounded-3xl shadow-2xl p-8 ${darkMode ? 'bg-gray-900' : 'bg-white'}`}>
+              <h2 className={`text-xl font-black mb-6 ${darkMode ? 'text-white' : ''}`}>Record Expense</h2>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <select required disabled={saving} className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-slate-50'}`}
+                  value={formData.vehicle_id} onChange={e => setFormData({ ...formData, vehicle_id: e.target.value })}>
+                  <option value="">Select Vehicle</option>
+                  {vehicles.map(v => <option key={v.id} value={v.id}>{v.license_plate} - {v.name}</option>)}
                 </select>
-                <input type="text" required placeholder="Amount (e.g. 4500)" value={newExpense.amount} onChange={e => setNewExpense({...newExpense, amount: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xl" />
-                <textarea placeholder="Description" value={newExpense.description} onChange={e => setNewExpense({...newExpense, description: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl" />
-                <button type="submit" className="w-full py-4 bg-brand-dark text-white rounded-2xl font-black shadow-lg">Save Record</button>
+                <input required disabled={saving} placeholder="Fuel Cost" type="number" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
+                  value={formData.fuel_cost} onChange={e => setFormData({ ...formData, fuel_cost: e.target.value })} />
+                <input disabled={saving} placeholder="Miscellaneous" type="number" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
+                  value={formData.misc_expense} onChange={e => setFormData({ ...formData, misc_expense: e.target.value })} />
+                <textarea disabled={saving} placeholder="Notes" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
+                  value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} />
+                <div className="flex gap-3 pt-2">
+                  <button type="button" disabled={saving} onClick={() => { if (!saving) setShowForm(false); }} className={`flex-1 py-3 border rounded-xl font-bold ${saving ? 'opacity-50 cursor-not-allowed' : ''} ${darkMode ? 'border-gray-700 text-gray-300' : 'border-slate-200 text-slate-600'}`}>Cancel</button>
+                  <button type="submit" disabled={saving} className={`flex-1 py-3 bg-brand-teal text-white rounded-xl font-bold shadow-md transition-all ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}>{saving ? '⏳ Saving...' : 'Save'}</button>
+                </div>
               </form>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-    </div>
+    </div >
   );
 }

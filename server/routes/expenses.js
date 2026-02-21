@@ -13,11 +13,11 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { tripId, driver, fuelCost, miscExpense } = req.body;
+    const { vehicle_id, fuel_cost, misc_expense, notes } = req.body;
     const newExpense = await db.query(
-      `INSERT INTO expenses (trip_id, driver_name, fuel_cost, misc_expense) 
+      `INSERT INTO expenses (vehicle_id, fuel_cost, misc_expense, notes) 
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [tripId, driver, fuelCost, miscExpense]
+      [vehicle_id, fuel_cost, misc_expense, notes]
     );
     res.json(newExpense.rows[0]);
   } catch (err) {
