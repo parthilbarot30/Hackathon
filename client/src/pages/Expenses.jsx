@@ -7,24 +7,20 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 export default function Expenses() {
   const [expenses, setExpenses] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const { darkMode } = useTheme();
 
+  // Form matches DB columns: trip_id, driver_name, fuel_cost, misc_expense, distance, status
   const [formData, setFormData] = useState({
-    vehicle_id: "", fuel_cost: "", misc_expense: "", notes: ""
+    driver_name: "", fuel_cost: "", misc_expense: "", distance: ""
   });
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [expRes, vehRes] = await Promise.all([
-          fetch(`${API_URL}/expenses`),
-          fetch(`${API_URL}/vehicles`)
-        ]);
-        setExpenses(await expRes.json());
-        setVehicles(await vehRes.json());
+        const res = await fetch(`${API_URL}/expenses`);
+        setExpenses(await res.json());
       } catch (err) {
         console.error("Error:", err);
       }
@@ -46,29 +42,23 @@ export default function Expenses() {
   const totalBurn = totalFuel + totalMisc;
   const formatCurrency = (n) => "₹" + n.toLocaleString("en-IN");
 
-  // Find vehicle name by ID
-  const getVehicleName = (vId) => {
-    const v = vehicles.find(v => v.id === parseInt(vId));
-    return v ? `${v.name} (${v.license_plate})` : `#${vId}`;
-  };
-
-  // Check if an expense is from maintenance (by notes)
-  const isMaintenanceExpense = (exp) => String(exp.notes || "").toLowerCase().includes("maintenance");
+  // Check if an expense is from maintenance (by driver_name containing "Maintenance")
+  const isMaintenanceExpense = (exp) => String(exp.driver_name || "").toLowerCase().includes("maintenance");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.vehicle_id || !formData.fuel_cost) return;
+    if (!formData.driver_name || !formData.fuel_cost) return;
     setSaving(true);
     try {
       const response = await fetch(`${API_URL}/expenses`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({ ...formData, status: "Recorded" })
       });
       if (response.ok) {
         const newExp = await response.json();
         setExpenses([newExp, ...expenses]);
         setShowForm(false);
-        setFormData({ vehicle_id: "", fuel_cost: "", misc_expense: "", notes: "" });
+        setFormData({ driver_name: "", fuel_cost: "", misc_expense: "", distance: "" });
       }
     } catch (err) {
       console.error("Error:", err);
@@ -119,9 +109,9 @@ export default function Expenses() {
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className={`text-xs uppercase tracking-wider border-b ${darkMode ? 'bg-gray-800 text-gray-400 border-gray-700' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
-              <th className="p-4 font-bold">ID</th><th className="p-4 font-bold">Vehicle</th>
+              <th className="p-4 font-bold">ID</th><th className="p-4 font-bold">Driver</th>
               <th className="p-4 font-bold">Fuel Cost</th><th className="p-4 font-bold">Misc.</th>
-              <th className="p-4 font-bold">Type</th><th className="p-4 font-bold">Notes</th>
+              <th className="p-4 font-bold">Distance</th><th className="p-4 font-bold">Type</th>
             </tr>
           </thead>
           <tbody className={darkMode ? 'divide-y divide-gray-800' : 'divide-y divide-slate-50'}>
@@ -130,9 +120,10 @@ export default function Expenses() {
             ) : expenses.map(exp => (
               <tr key={exp.id} className={`transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-slate-50'}`}>
                 <td className={`p-4 font-bold ${darkMode ? 'text-white' : 'text-brand-dark'}`}>#{exp.id}</td>
-                <td className={`p-4 ${darkMode ? 'text-gray-300' : 'text-slate-600'}`}>{getVehicleName(exp.vehicle_id)}</td>
+                <td className={`p-4 ${darkMode ? 'text-gray-300' : 'text-slate-600'}`}>{exp.driver_name || "—"}</td>
                 <td className="p-4 text-red-500 font-bold">{formatCurrency(cleanAmount(exp.fuel_cost))}</td>
                 <td className="p-4 text-orange-500 font-bold">{formatCurrency(cleanAmount(exp.misc_expense))}</td>
+                <td className={`p-4 text-sm ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>{exp.distance || "—"}</td>
                 <td className="p-4">
                   {isMaintenanceExpense(exp) ? (
                     <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-orange-100 text-orange-600 border border-orange-200">MAINT.</span>
@@ -140,7 +131,6 @@ export default function Expenses() {
                     <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-600 border border-blue-200">FUEL</span>
                   )}
                 </td>
-                <td className={`p-4 text-sm ${darkMode ? 'text-gray-400' : 'text-slate-500'}`}>{exp.notes || "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -156,17 +146,14 @@ export default function Expenses() {
               className={`relative w-full max-w-lg rounded-3xl shadow-2xl p-8 ${darkMode ? 'bg-gray-900' : 'bg-white'}`}>
               <h2 className={`text-xl font-black mb-6 ${darkMode ? 'text-white' : ''}`}>Record Expense</h2>
               <form onSubmit={handleSubmit} className="space-y-4">
-                <select required disabled={saving} className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-slate-50'}`}
-                  value={formData.vehicle_id} onChange={e => setFormData({ ...formData, vehicle_id: e.target.value })}>
-                  <option value="">Select Vehicle</option>
-                  {vehicles.map(v => <option key={v.id} value={v.id}>{v.license_plate} - {v.name}</option>)}
-                </select>
+                <input required disabled={saving} placeholder="Driver Name" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
+                  value={formData.driver_name} onChange={e => setFormData({ ...formData, driver_name: e.target.value })} />
                 <input required disabled={saving} placeholder="Fuel Cost" type="number" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
                   value={formData.fuel_cost} onChange={e => setFormData({ ...formData, fuel_cost: e.target.value })} />
                 <input disabled={saving} placeholder="Miscellaneous" type="number" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
                   value={formData.misc_expense} onChange={e => setFormData({ ...formData, misc_expense: e.target.value })} />
-                <textarea disabled={saving} placeholder="Notes" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
-                  value={formData.notes} onChange={e => setFormData({ ...formData, notes: e.target.value })} />
+                <input disabled={saving} placeholder="Distance (e.g. 300 km)" className={`w-full p-3 border rounded-xl ${saving ? 'opacity-50' : ''} ${darkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-slate-50'}`}
+                  value={formData.distance} onChange={e => setFormData({ ...formData, distance: e.target.value })} />
                 <div className="flex gap-3 pt-2">
                   <button type="button" disabled={saving} onClick={() => { if (!saving) setShowForm(false); }} className={`flex-1 py-3 border rounded-xl font-bold ${saving ? 'opacity-50 cursor-not-allowed' : ''} ${darkMode ? 'border-gray-700 text-gray-300' : 'border-slate-200 text-slate-600'}`}>Cancel</button>
                   <button type="submit" disabled={saving} className={`flex-1 py-3 bg-brand-teal text-white rounded-xl font-bold shadow-md transition-all ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}>{saving ? '⏳ Saving...' : 'Save'}</button>
@@ -176,6 +163,6 @@ export default function Expenses() {
           </div>
         )}
       </AnimatePresence>
-    </div >
+    </div>
   );
 }

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 
+// GET all expenses
 router.get('/', async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM expenses ORDER BY id DESC');
@@ -11,13 +12,15 @@ router.get('/', async (req, res) => {
   }
 });
 
+// POST new expense
+// DB columns: trip_id, driver_name, fuel_cost, misc_expense, distance, status, created_at
 router.post('/', async (req, res) => {
   try {
-    const { vehicle_id, fuel_cost, misc_expense, notes } = req.body;
+    const { trip_id, driver_name, fuel_cost, misc_expense, distance, status } = req.body;
     const newExpense = await db.query(
-      `INSERT INTO expenses (vehicle_id, fuel_cost, misc_expense, notes) 
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [vehicle_id, fuel_cost, misc_expense, notes]
+      `INSERT INTO expenses (trip_id, driver_name, fuel_cost, misc_expense, distance, status) 
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [trip_id || null, driver_name || '', fuel_cost || 0, misc_expense || 0, distance || '', status || 'Recorded']
     );
     res.json(newExpense.rows[0]);
   } catch (err) {

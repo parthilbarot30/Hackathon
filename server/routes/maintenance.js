@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 
+// GET all maintenance logs with vehicle info
 router.get('/', async (req, res) => {
   try {
     const query = `
@@ -17,14 +18,16 @@ router.get('/', async (req, res) => {
   }
 });
 
+// POST new maintenance log
+// DB columns: vehicle_id, issue (NOT NULL), service_date, cost (varchar), status, service_type, notes, created_at
 router.post('/', async (req, res) => {
   try {
     const { vehicle_id, service_type, cost, notes } = req.body;
 
     const newLog = await db.query(
-      `INSERT INTO maintenance (vehicle_id, service_type, cost, notes) 
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [vehicle_id, service_type, cost, notes]
+      `INSERT INTO maintenance (vehicle_id, issue, service_type, cost, notes, service_date, status) 
+       VALUES ($1, $2, $3, $4, $5, CURRENT_DATE, 'In Progress') RETURNING *`,
+      [vehicle_id, service_type, service_type, cost, notes]
     );
 
     // Auto-update vehicle status to 'In Shop'
@@ -33,9 +36,9 @@ router.post('/', async (req, res) => {
     // Also auto-create an expense entry for this maintenance cost
     if (cost) {
       await db.query(
-        `INSERT INTO expenses (vehicle_id, fuel_cost, misc_expense, notes) 
-         VALUES ($1, 0, $2, $3)`,
-        [vehicle_id, cost, `Maintenance: ${service_type || 'Service'}`]
+        `INSERT INTO expenses (driver_name, fuel_cost, misc_expense, distance, status) 
+         VALUES ($1, 0, $2, '', 'Recorded')`,
+        [`Maintenance: ${service_type || 'Service'}`, cost]
       );
     }
 

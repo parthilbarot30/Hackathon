@@ -31,12 +31,12 @@ export default function Analytics() {
   useEffect(() => { fetchData(period); }, [period]);
 
   const financialCards = data ? [
-    { label: "Revenue", value: data.revenue, icon: TrendingUp, color: "text-green-500", bgIcon: darkMode ? "bg-green-500/20" : "bg-green-50" },
-    { label: "Fuel Cost", value: data.fuelCost, icon: Fuel, color: "text-red-500", bgIcon: darkMode ? "bg-red-500/20" : "bg-red-50" },
-    { label: "Maintenance", value: data.maintenance, icon: Wrench, color: "text-orange-500", bgIcon: darkMode ? "bg-orange-500/20" : "bg-orange-50" },
-    { label: "Misc Expenses", value: data.miscExpenses, icon: DollarSign, color: "text-purple-500", bgIcon: darkMode ? "bg-purple-500/20" : "bg-purple-50" },
-    { label: "Total Expenses", value: data.totalExpenses, icon: Activity, color: "text-red-400", bgIcon: darkMode ? "bg-red-400/20" : "bg-red-50" },
-    { label: "Net Profit", value: data.netProfit, icon: TrendingUp, color: "text-brand-teal", bgIcon: darkMode ? "bg-brand-teal/20" : "bg-brand-teal/5" },
+    { label: "Revenue", value: data.revenue, icon: TrendingUp, color: "text-green-500", barColor: "bg-green-500", bgIcon: darkMode ? "bg-green-500/20" : "bg-green-50" },
+    { label: "Fuel Cost", value: data.fuelCost, icon: Fuel, color: "text-red-500", barColor: "bg-red-500", bgIcon: darkMode ? "bg-red-500/20" : "bg-red-50" },
+    { label: "Maintenance", value: data.maintenance, icon: Wrench, color: "text-orange-500", barColor: "bg-orange-500", bgIcon: darkMode ? "bg-orange-500/20" : "bg-orange-50" },
+    { label: "Misc Expenses", value: data.miscExpenses, icon: DollarSign, color: "text-purple-500", barColor: "bg-purple-500", bgIcon: darkMode ? "bg-purple-500/20" : "bg-purple-50" },
+    { label: "Total Expenses", value: data.totalExpenses, icon: Activity, color: "text-red-400", barColor: "bg-red-400", bgIcon: darkMode ? "bg-red-400/20" : "bg-red-50" },
+    { label: "Net Profit", value: data.netProfit, icon: TrendingUp, color: "text-brand-teal", barColor: "bg-brand-teal", bgIcon: darkMode ? "bg-brand-teal/20" : "bg-brand-teal/5" },
   ] : [];
 
   const operationalCards = data ? [
@@ -70,10 +70,10 @@ export default function Analytics() {
               key={p.key}
               onClick={() => setPeriod(p.key)}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${period === p.key
-                  ? 'bg-brand-teal text-white shadow-md'
-                  : darkMode
-                    ? 'text-gray-400 hover:text-white hover:bg-gray-800'
-                    : 'text-slate-500 hover:text-brand-dark hover:bg-slate-50'
+                ? 'bg-brand-teal text-white shadow-md'
+                : darkMode
+                  ? 'text-gray-400 hover:text-white hover:bg-gray-800'
+                  : 'text-slate-500 hover:text-brand-dark hover:bg-slate-50'
                 }`}
             >
               {p.label}
@@ -127,7 +127,7 @@ export default function Analytics() {
                       initial={{ width: 0 }}
                       animate={{ width: `${getBarWidth(i)}%` }}
                       transition={{ duration: 1, delay: 0.3 + i * 0.1 }}
-                      className={`h-full rounded-full ${c.color.replace("text-", "bg-")}`}
+                      className={`h-full rounded-full ${c.barColor}`}
                     />
                   </div>
                   <span className={`text-sm font-black w-20 text-right ${darkMode ? 'text-white' : ''}`}>{c.value}</span>

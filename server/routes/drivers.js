@@ -27,14 +27,14 @@ router.get('/available', async (req, res) => {
   }
 });
 
-// POST new driver
+// POST new driver (DB columns: name, license_no, expiry_date, status)
 router.post('/', async (req, res) => {
   try {
-    const { name, phone, license_no, expiry_date, address } = req.body;
+    const { name, license_no, expiry_date } = req.body;
     const newDriver = await db.query(
-      `INSERT INTO drivers (name, phone, license_no, expiry_date) 
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [name, phone, license_no, expiry_date]
+      `INSERT INTO drivers (name, license_no, expiry_date, status, completion_rate, safety_score, complaints, trips) 
+       VALUES ($1, $2, $3, 'On Duty', 80, 80, 0, 0) RETURNING *`,
+      [name, license_no, expiry_date]
     );
     res.json(newDriver.rows[0]);
   } catch (err) {

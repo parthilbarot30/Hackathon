@@ -104,13 +104,12 @@ export default function Home() {
       {/* ─── NAVBAR ──────────────────────────────────────────────── */}
       <motion.nav style={{ backgroundColor: navBg }} className={`fixed top-0 w-full z-50 px-5 py-4 flex items-center justify-between shadow-sm backdrop-blur-xl border-b ${darkMode ? 'border-gray-800' : 'border-slate-100'}`}>
         <div className="flex items-center gap-3">
-          {/* Small settings menu button */}
+          {/* Settings menu button */}
           <div className="relative">
             <motion.button onClick={() => setIsMenuOpen(!isMenuOpen)} className={`p-2.5 shadow-md border rounded-xl ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-300' : 'bg-white border-slate-100 text-slate-600'}`}>
               {isMenuOpen ? <X size={22} /> : <Settings size={22} />}
             </motion.button>
 
-            {/* Small dropdown — Settings + About Us ONLY */}
             <AnimatePresence>
               {isMenuOpen && (
                 <motion.div
@@ -134,7 +133,6 @@ export default function Home() {
                     </div>
                   </button>
 
-                  {/* Divider */}
                   <div className={`border-t ${darkMode ? 'border-gray-800' : 'border-slate-100'}`} />
 
                   {/* About Us */}
